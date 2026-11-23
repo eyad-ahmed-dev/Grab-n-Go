@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Grab and Go — Order Smart. Skip the Queue.</title>
+<meta name="theme-color" content="#10203a">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#10203a;--bg:#f2f6f4;--card:#fff;--sun:#ffc83d;--sun-d:#e6ae1c;--line:#d9e2de;--mut:#5d6b7a;--ok:#1b8a5a;--bad:#c8392b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 "Bricolage Grotesque",system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:inherit;text-decoration:none}
+:focus-visible{outline:3px solid var(--sun-d);outline-offset:2px}
+header{background:var(--ink);color:#fff;display:flex;justify-content:space-between;align-items:center;padding:12px 18px;position:sticky;top:0;z-index:9}
+.brand{font-weight:800;font-size:1.3rem}.brand b{color:var(--sun)}
+nav{display:flex;gap:14px;align-items:center;font-size:.95rem}
+main{max-width:980px;margin:0 auto;padding:18px}
+h1{font-size:2rem;line-height:1.1;margin:.2em 0 .4em;font-weight:800}
+h2,h3{margin:.8em 0 .4em}
+.mut{color:var(--mut)}.sm{font-size:.85rem}.err{color:var(--bad);font-weight:700}
+.hero{background:var(--ink);color:#fff;border-radius:22px;padding:26px;margin-bottom:14px}
+.hero h1{font-size:clamp(2rem,6vw,3.2rem)}.hero p{margin:0;color:#c9d4e2}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:8px 0}
+.rest{margin:0;border-left:6px solid var(--sun)}.rest:hover{border-left-color:var(--ink)}
+.row{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.split{display:grid;grid-template-columns:1fr 330px;gap:18px;align-items:start}
+@media(max-width:800px){.split{grid-template-columns:1fr}}
+.cart{position:sticky;top:70px}
+.btn{background:var(--sun);color:var(--ink);border:0;border-radius:10px;padding:11px 16px;font:inherit;font-weight:800;cursor:pointer;width:100%;margin-top:8px}
+.btn:hover{background:var(--sun-d)}.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.s{width:auto;padding:6px 12px;margin:4px 4px 0 0;font-size:.85rem}.btn.dark{background:var(--ink);color:#fff}.btn.out{background:#fff;border:2px solid var(--bad);color:var(--bad)}
+.lnk{background:none;border:0;color:inherit;font:inherit;cursor:pointer;padding:0;text-decoration:underline}
+input[type=email],input[type=password],input[type=text]{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font:inherit;margin:5px 0}
+label.o{display:flex;gap:8px;align-items:center;font-size:.9rem;margin-top:4px}
+.ban{background:#fff4cf;border:1px solid #f2dc8c;border-radius:10px;padding:10px 14px;margin:10px 0}.ban.ok{background:#dff5ea;border-color:#a9dfc5}.ban.bad{background:#fde3df;border-color:#f3b4ab}
+.tag{display:inline-block;padding:2px 10px;border-radius:99px;background:#e4eaee;font-size:.78rem;font-weight:700}.tag.ok,.tag.ready,.tag.completed{background:#dff5ea;color:var(--ok)}.tag.rejected,.tag.cancelled{background:#fde3df;color:var(--bad)}
+.ln{display:flex;justify-content:space-between;gap:10px;padding:5px 0}.tot{border-top:2px dashed var(--line);font-weight:800;margin-top:6px;padding-top:8px}
+.q button{width:26px;height:26px;border-radius:50%;border:1px solid var(--line);background:#fff;cursor:pointer}
+.ticket{background:var(--card);border:2px dashed var(--ink);border-radius:16px;padding:18px;text-align:center;margin:12px 0;position:relative}
+.ticket .no{font-size:4.2rem;font-weight:800;line-height:1}
+.steps{list-style:none;display:flex;gap:6px;padding:0;flex-wrap:wrap}.steps li{flex:1;min-width:105px;text-align:center;padding:9px;border-radius:10px;background:#e4eaee;font-size:.85rem}.steps li.on{background:var(--ok);color:#fff}
+.setup{max-width:560px;margin:40px auto}
+</style>
+</head>
+<body>
+<header><a href="#/" class="brand">Grab<b>&amp;</b>Go</a><nav id="nav"></nav></header>
+<main id="app"></main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+// ============ CONFIG: paste your Supabase values (the anon key is public; RLS protects the data) ============
+const CONFIG = { url: "", anonKey: "" };
+// ==============================================================================================================
+
+const $ = (s) => document.querySelector(s), app = $("#app");
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const egp = (n) => "EGP " + Number(n).toFixed(2).replace(/\.00$/, "");
+const ST = { submitted: "Order submitted", awaiting_acceptance: "Waiting for the restaurant", accepted: "Accepted", preparing: "Preparing", ready: "Ready for pickup", completed: "Completed", rejected: "Rejected", cancelled: "Cancelled" };
+const ERR = {
+  not_in_ordering_window: "Ordering opens only in the last 10 minutes of your lecture.",
+  restaurant_not_accepting: "This restaurant is not accepting orders right now.",
+  restaurant_closed: "This restaurant is closed or past its order cutoff.",
+  restaurant_at_capacity: "The restaurant is busy. Try again in a few minutes.",
+  restaurant_unavailable: "This restaurant is unavailable.",
+  product_unavailable: "An item in your cart is no longer available.",
+  invalid_customization: "An option you picked is no longer available.",
+  payment_method_unavailable: "This payment method is not available yet.",
+  students_only: "Only student accounts can place orders.",
+};
+const fail = (e) => ERR[e?.message] || "Something went wrong. Please try again.";
+
+if (!CONFIG.url || !CONFIG.anonKey) {
+  app.innerHTML = `<div class="card setup"><h2>Connect your backend</h2><p>Open <b>index.html</b>, find <code>CONFIG</code> near the top of the script, and paste your Supabase project URL and anon key. Then reload.</p></div>`;
+  throw new Error("CONFIG missing");
+}
+const sb = supabase.createClient(CONFIG.url, CONFIG.anonKey);
+
+let session = null, isStaff = false, chan = null, timer = null, view = {};
+let cart = (() => { try { return JSON.parse(localStorage.gg_cart) } catch { return { rid: null, lines: [] } } })();
+let idem = crypto.randomUUID(); // reused on retry => the server never creates a duplicate order
+const saveCart = () => { try { localStorage.gg_cart = JSON.stringify(cart) } catch {} };
+const cartCount = () => cart.lines.reduce((s, l) => s + l.qty, 0);
+const cartTotal = () => cart.lines.reduce((s, l) => s + (l.price + l.opts.reduce((a, o) => a + o.d, 0)) * l.qty, 0);
+
+function drawNav() {
+  $("#nav").innerHTML = (session ? `<a href="#/orders">My orders</a>${isStaff ? '<a href="#/staff">Restaurant</a>' : ""}<button class="lnk" data-a="out">Sign out</button>` : `<a href="#/login">Sign in</a>`) + (cartCount() ? `<span class="tag ok">${cartCount()} in cart</span>` : "");
+}
+async function lectureEnd() {
+  if (!session) return null;
+  const { data } = await sb.rpc("my_lecture_end");
+  return data ? new Date(data) : null;
+}
+const banner = (end) => end
+  ? `<div class="ban ok">Ordering is open. Your lecture ends at ${end.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Cairo" })}.</div>`
+  : `<div class="ban">You can order in the last 10 minutes of your lecture. Menus are open to browse anytime.</div>`;
+
+/* ---------------- routing ---------------- */
+async function route() {
+  if (chan) { sb.removeChannel(chan); chan = null }
+  clearInterval(timer);
+  drawNav();
+  const [, p, a] = location.hash.split("/");
+  try {
+    if (p === "login") return login();
+    if (p === "r") return restaurant(a);
+    if (p === "orders") return orders();
+    if (p === "o") return track(a);
+    if (p === "staff") return staff();
+    return home();
+  } catch (e) { app.innerHTML = `<p class="err">${esc(e.message)}</p>` }
+}
+
+async function home() {
+  app.innerHTML = `<section class="hero"><h1>Order Smart.<br>Skip the Queue.</h1><p>Pick your food before you reach the counter.</p></section><div id="win"></div><div id="list" class="grid"><p class="mut">Loading restaurants…</p></div>`;
+  lectureEnd().then((e) => { if (session) $("#win").innerHTML = banner(e) });
+  const { data } = await sb.from("restaurants").select("slug,name,accepting_orders,avg_prep_minutes").eq("is_active", true).order("name");
+  $("#list").innerHTML = data?.length ? data.map((r) => `<a class="card rest" href="#/r/${esc(r.slug)}"><b>${esc(r.name)}</b><div class="mut sm">${r.accepting_orders ? `Open, about ${r.avg_prep_minutes} min` : "Not accepting orders"}</div></a>`).join("") : `<p class="mut">No restaurants are live yet.</p>`;
+}
+
+function login(mode = "in") {
+  app.innerHTML = `<form class="card" id="f" style="max-width:380px;margin:30px auto"><h2>${mode === "in" ? "Sign in" : "Create account"}</h2>
+  ${mode === "up" ? '<input type="text" id="nm" placeholder="Full name" required>' : ""}<input type="email" id="em" placeholder="University email" required><input type="password" id="pw" placeholder="Password (8+ characters)" minlength="8" required>
+  <p id="m" class="err"></p><button class="btn">${mode === "in" ? "Sign in" : "Sign up"}</button>
+  <p><button type="button" class="lnk" id="sw">${mode === "in" ? "Create an account" : "I have an account"}</button></p>
+  <p class="mut sm">Your group and ordering eligibility come from the university timetable.</p></form>`;
+  $("#sw").onclick = () => login(mode === "in" ? "up" : "in");
+  $("#f").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const email = $("#em").value, password = $("#pw").value;
+    const r = mode === "in" ? await sb.auth.signInWithPassword({ email, password }) : await sb.auth.signUp({ email, password, options: { data: { full_name: $("#nm").value } } });
+    if (r.error) return ($("#m").textContent = r.error.message);
+    if (!r.data.session) return ($("#m").textContent = "Check your email to confirm your account, then sign in.");
+    location.hash = "#/";
+  };
+}
+
+/* ---------------- menu + cart + checkout ---------------- */
+async function restaurant(slug) {
+  const { data: r } = await sb.from("restaurants").select("id,name,accepting_orders").eq("slug", slug).single();
+  if (!r) return (app.innerHTML = `<p class="err">Restaurant not found.</p>`);
+  const [c, p, o, end] = await Promise.all([
+    sb.from("menu_categories").select("*").eq("restaurant_id", r.id).order("sort_order"),
+    sb.from("products").select("*").eq("restaurant_id", r.id).eq("is_available", true).order("sort_order"),
+    sb.from("product_customizations").select("*").eq("restaurant_id", r.id).eq("is_available", true),
+    lectureEnd(),
+  ]);
+  view = { r, cats: c.data || [], prods: p.data || [], opts: o.data || [], end, pay: "cash", msg: "", busy: false };
+  const sec = (t, items) => !items.length ? "" : `<h3>${esc(t)}</h3>` + items.map((x) => `<div class="card row"><div><b>${esc(x.name)}</b>${x.description ? `<div class="mut sm">${esc(x.description)}</div>` : ""}${view.opts.filter((q) => q.product_id === x.id).map((q) => `<label class="o"><input type="checkbox" data-p="${x.id}" value="${q.id}"> ${esc(q.name)} ${+q.price_delta ? `<span class="mut">+${egp(q.price_delta)}</span>` : ""}</label>`).join("")}</div><div style="text-align:right">${egp(x.price)}<br><button class="btn s" data-a="add" data-id="${x.id}">Add</button></div></div>`).join("");
+  app.innerHTML = `<div class="split"><div><h1>${esc(r.name)}</h1>${session ? banner(end) : ""}${r.accepting_orders ? "" : '<div class="ban">This restaurant is not accepting orders right now.</div>'}
+  ${view.cats.map((k) => sec(k.name, view.prods.filter((x) => x.category_id === k.id))).join("")}${sec("Menu", view.prods.filter((x) => !view.cats.some((k) => k.id === x.category_id)))}${view.prods.length ? "" : '<p class="mut">The menu has not been published yet.</p>'}</div><aside class="card cart" id="cart"></aside></div>`;
+  drawCart();
+}
+function drawCart() {
+  const el = $("#cart"); if (!el) return;
+  const mine = cart.rid === view.r.id && cart.lines.length;
+  if (!mine) { el.innerHTML = `<h3>Your order</h3><p class="mut">Add items from the menu to start.</p>`; return drawNav() }
+  const open = !!view.end;
+  el.innerHTML = `<h3>Your order</h3>${cart.lines.map((l, i) => `<div class="ln"><div>${esc(l.name)}<div class="mut sm">${l.opts.map((o) => esc(o.name)).join(", ")}</div></div><div class="q"><button data-a="q" data-i="${i}" data-d="-1">−</button> ${l.qty} <button data-a="q" data-i="${i}" data-d="1">+</button></div></div>`).join("")}
+  <div class="ln tot"><span>Total (estimate)</span><span>${egp(cartTotal())}</span></div><p class="mut sm">The server confirms the final total.</p>
+  <label class="o"><input type="radio" name="pay" value="cash" ${view.pay === "cash" ? "checked" : ""}> Cash on pickup</label>
+  <label class="o"><input type="radio" name="pay" value="card_on_pickup" ${view.pay === "card_on_pickup" ? "checked" : ""}> Card on pickup</label>
+  <p class="err">${esc(view.msg)}</p><button class="btn" data-a="buy" ${view.busy || (session && !open) ? "disabled" : ""}>${view.busy ? "Placing order…" : !session ? "Sign in to order" : open ? "Place order" : "Opens near lecture end"}</button>`;
+  drawNav();
+}
+async function placeOrder() {
+  if (!session) return (location.hash = "#/login");
+  view.busy = true; view.msg = ""; drawCart();
+  const items = cart.lines.map((l) => ({ product_id: l.pid, quantity: l.qty, customization_ids: l.opts.map((o) => o.id) }));
+  const { data, error } = await sb.rpc("place_order", { p_restaurant_id: cart.rid, p_items: items, p_payment_method: view.pay, p_idempotency_key: idem });
+  view.busy = false;
+  if (error) { view.msg = fail(error); return drawCart() }
+  cart = { rid: null, lines: [] }; saveCart(); idem = crypto.randomUUID();
+  location.hash = "#/o/" + data.public_id;
+}
+
+/* ---------------- student: orders + tracking ---------------- */
+async function orders() {
+  if (!session) return login();
+  const { data } = await sb.from("orders").select("public_id,order_number,status,total_amount,submitted_at,restaurants(name)").order("submitted_at", { ascending: false }).limit(50);
+  app.innerHTML = `<h1>My orders</h1>` + (data?.length ? data.map((o) => `<a class="card row" href="#/o/${o.public_id}"><div><b>#${o.order_number}</b> ${esc(o.restaurants?.name)}<div class="mut sm">${new Date(o.submitted_at).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}</div></div><div style="text-align:right">${egp(o.total_amount)}<br><span class="tag ${o.status}">${ST[o.status]}</span></div></a>`).join("") : `<p class="mut">No orders yet. Pick a restaurant to place your first one.</p>`);
+}
+async function track(id) {
+  if (!session) return login();
+  const load = async () => {
+    const { data: o } = await sb.from("orders").select("public_id,order_number,status,payment_method,total_amount,rejection_reason,restaurants(name),order_items(id,product_name,quantity,line_total,customizations),payments(status)").eq("public_id", id).single();
+    if (!o) return (app.innerHTML = `<p class="err">Order not found.</p>`);
+    const pay = Array.isArray(o.payments) ? o.payments[0] : o.payments;
+    const steps = ["awaiting_acceptance", "accepted", "preparing", "ready", "completed"], idx = o.status === "submitted" ? 0 : steps.indexOf(o.status);
+    const dead = ["rejected", "cancelled"].includes(o.status), early = ["submitted", "awaiting_acceptance"].includes(o.status);
+    app.innerHTML = `<p class="mut">${esc(o.restaurants?.name)}</p><div class="ticket"><div class="mut">Your order number</div><div class="no">${o.order_number}</div><span class="tag ${o.status}">${ST[o.status]}</span></div>
+    ${early ? '<div class="ban">Not confirmed yet. The restaurant has to accept your order first.</div>' : ""}
+    ${dead ? `<div class="ban bad">${ST[o.status]}${o.rejection_reason ? ": " + esc(o.rejection_reason) : ""}</div>` : `<ol class="steps">${steps.map((s, i) => `<li class="${i <= idx ? "on" : ""}">${s === "awaiting_acceptance" ? "Sent to restaurant" : ST[s]}</li>`).join("")}</ol>`}
+    <div class="card">${o.order_items.map((i) => `<div class="ln"><span>${i.quantity} × ${esc(i.product_name)}${i.customizations?.length ? " (" + i.customizations.map((c) => esc(c.name)).join(", ") + ")" : ""}</span><span>${egp(i.line_total)}</span></div>`).join("")}<div class="ln tot"><span>Total</span><span>${egp(o.total_amount)}</span></div>
+    <p class="mut sm">${o.payment_method === "cash" ? "Cash on pickup" : "Card on pickup"}. ${pay?.status === "paid" ? "Paid." : "Not paid yet."}</p></div>
+    ${early ? '<button class="btn out" data-a="cancel" style="width:auto">Cancel order</button>' : ""}<p id="m" class="mut"></p>`;
+  };
+  view = { oid: id, reload: load };
+  await load();
+  chan = sb.channel("o" + id).on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders", filter: "public_id=eq." + id }, load).subscribe();
+  timer = setInterval(load, 10000); // fallback if realtime drops
+}
+
+/* ---------------- restaurant fallback screen (setup/diagnostics; real flow = existing software) ---------------- */
+let lastNew = -1;
+const beep = () => { try { const c = new AudioContext(), o = c.createOscillator(); o.connect(c.destination); o.frequency.value = 880; o.start(); o.stop(c.currentTime + 0.25) } catch {} };
+async function staff() {
+  if (!session || !isStaff) return (app.innerHTML = `<p class="err">This page is for restaurant staff.</p>`);
+  const load = async () => {
+    const { data } = await sb.from("orders").select("id,order_number,status,payment_method,total_amount,pickup_name,restaurants(name),order_items(id,product_name,quantity,customizations),payments(status)").in("status", ["submitted", "awaiting_acceptance", "accepted", "preparing", "ready"]).order("id");
+    const n = (data || []).filter((o) => ["submitted", "awaiting_acceptance"].includes(o.status)).length;
+    if (lastNew >= 0 && n > lastNew) beep();
+    lastNew = n;
+    const btn = (id, s, t, c = "") => `<button class="btn s ${c}" data-a="st" data-id="${id}" data-s="${s}">${t}</button>`;
+    app.innerHTML = `<h1>Restaurant orders</h1><p class="mut">Fallback screen. Restaurants with an integrated system receive these orders inside their own software.</p>` + (data?.length ? data.map((o) => {
+      const pay = Array.isArray(o.payments) ? o.payments[0] : o.payments;
+      return `<div class="card"><div class="row"><div><b>#${o.order_number}</b> ${esc(o.pickup_name)} <span class="tag ${o.status}">${ST[o.status]}</span></div><div>${egp(o.total_amount)} · ${o.payment_method === "cash" ? "Cash" : "Card"} · ${pay?.status === "paid" ? "Paid" : "Unpaid"}</div></div>
+      ${o.order_items.map((i) => `<div class="sm">${i.quantity} × ${esc(i.product_name)}${i.customizations?.length ? " (" + i.customizations.map((c) => esc(c.name)).join(", ") + ")" : ""}</div>`).join("")}
+      ${["submitted", "awaiting_acceptance"].includes(o.status) ? btn(o.id, "accepted", "Accept") + btn(o.id, "rejected", "Reject", "out") : ""}${o.status === "accepted" ? btn(o.id, "preparing", "Preparing") : ""}${["accepted", "preparing"].includes(o.status) ? btn(o.id, "ready", "Ready", "dark") : ""}${o.status === "ready" ? btn(o.id, "completed", "Completed", "dark") : ""}
+      ${o.status !== "submitted" && o.status !== "awaiting_acceptance" && pay?.status !== "paid" ? `<button class="btn s" data-a="paid" data-id="${o.id}">Payment collected</button>` : ""}</div>`;
+    }).join("") : `<p class="mut">No active orders.</p>`);
+  };
+  lastNew = -1; await load(); timer = setInterval(load, 5000); view = { reload: load };
+}
+
+/* ---------------- events ---------------- */
+document.addEventListener("click", async (e) => {
+  const t = e.target.closest("[data-a]"); if (!t) return;
+  const a = t.dataset.a;
+  if (a === "out") { await sb.auth.signOut(); location.hash = "#/" }
+  if (a === "add") {
+    const p = view.prods.find((x) => x.id == t.dataset.id);
+    const picked = [...document.querySelectorAll(`input[data-p="${p.id}"]:checked`)].map((c) => view.opts.find((o) => o.id == c.value)).map((o) => ({ id: o.id, name: o.name, d: +o.price_delta }));
+    if (cart.rid !== p.restaurant_id) cart = { rid: p.restaurant_id, lines: [] };
+    const key = p.id + ":" + picked.map((o) => o.id).sort().join(",");
+    const hit = cart.lines.find((l) => l.key === key);
+    hit ? (hit.qty = Math.min(hit.qty + 1, 20)) : cart.lines.push({ key, pid: p.id, name: p.name, price: +p.price, qty: 1, opts: picked });
+    saveCart(); drawCart();
+  }
+  if (a === "q") { const l = cart.lines[+t.dataset.i]; l.qty = Math.min(l.qty + +t.dataset.d, 20); if (l.qty <= 0) cart.lines.splice(+t.dataset.i, 1); saveCart(); drawCart() }
+  if (a === "buy") placeOrder();
+  if (a === "cancel") { const { data, error } = await sb.rpc("cancel_my_order", { p_public_id: view.oid }); $("#m").textContent = error ? "Could not cancel." : data === "applied" ? "Order cancelled." : "The restaurant already responded."; view.reload() }
+  if (a === "st") {
+    const rej = t.dataset.s === "rejected"; let note = null;
+    if (rej && !(note = prompt("Rejection reason (the student will see it):"))) return;
+    const { error } = await sb.rpc("staff_set_order_status", { p_order_id: +t.dataset.id, p_status: t.dataset.s, p_note: note });
+    if (error) alert("Not allowed: " + error.message); view.reload();
+  }
+  if (a === "paid") { const { error } = await sb.rpc("staff_confirm_payment", { p_order_id: +t.dataset.id }); if (error) alert(error.message); view.reload() }
+});
+document.addEventListener("change", (e) => { if (e.target.name === "pay") { view.pay = e.target.value } });
+
+sb.auth.onAuthStateChange(async (_ev, s) => {
+  session = s;
+  isStaff = false;
+  if (s) { const { data } = await sb.from("restaurant_staff").select("restaurant_id").limit(1); isStaff = !!data?.length }
+  route();
+});
+window.addEventListener("hashchange", route);
+</script>
+</body>
+</html>
